@@ -14,12 +14,18 @@ class baseUserModel(User_in) :
 class roomModel_in(BaseModel) :
     name: str = Field(title='Name of the chat room',max_length=30)
 
+class join_with_code(BaseModel) :
+    code:str = Field(title="Chatroom Code",description="Unique code to join the chatroom",max_length=8)
+
 class roomModel_out(roomModel_in) :
     code:str = Field(title="Chatroom Code",description="Unique code to join the chatroom",max_length=8)
     msgs: List[dict] = Field([],title="All the messages in the chat room")
+    creater: str = Field(max_length=40)
+    members: List[str] = Field([])
 
 class messageModel(BaseModel) :
     msg: str = Field(title='The message',max_length=300)
+    code: str = Field(max_length=8)
     writer: str = Field(title = 'Username',description='Username of the user who wrote sent the message')
     created_at: datetime = Field(None)
 
