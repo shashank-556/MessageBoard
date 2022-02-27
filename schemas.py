@@ -24,7 +24,7 @@ class roomModel_out(roomModel_in) :
     members: List[str] = Field([])
 
 class messageModel(BaseModel) :
-    msg: str = Field(title='The message',max_length=300)
+    message: str = Field(title='The message',max_length=300)
     code: str = Field(max_length=8)
     writer: str = Field(title = 'Username',description='Username of the user who wrote sent the message')
     created_at: datetime = Field(None)

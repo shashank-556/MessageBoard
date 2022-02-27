@@ -1,17 +1,24 @@
 from datetime import datetime, timedelta
 import json
-from fastapi import Depends, FastAPI , HTTPException, WebSocket,WebSocketDisconnect
+from fastapi import Depends, FastAPI , HTTPException, WebSocket,WebSocketDisconnect,Request
 import random
 import string
 from typing import List
 from fastapi.security import OAuth2PasswordBearer,OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from jose import jwt,JWTError
-from schemas import User_in,baseUserModel,Token,roomModel_in,roomModel_out,join_with_code
+from starlette.websockets import WebSocketState
+from schemas import User_in,baseUserModel,Token,roomModel_in,roomModel_out,join_with_code,messageModel
 import pymongo
 
 app = FastAPI()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='token')
+
+class CustomOAuth2PasswordBearer(OAuth2PasswordBearer):
+    async def __call__(self, request: Request = None, websocket: WebSocket = None):
+        return await super().__call__(request or websocket)
+
+
+oauth2_scheme = CustomOAuth2PasswordBearer(tokenUrl="login")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_secret_key():
@@ -65,12 +72,11 @@ async def authenticate_user(username: str, password: str):
         return False
     return user
 
-
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def current_user(token: str) :
     credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
+    status_code=401,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -83,6 +89,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise credentials_exception
     return user
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    return await current_user(token)
 
 def check_if_key_values_exist(coll: pymongo.collection.Collection,di:dict):
     data = coll.find_one(di)
@@ -164,17 +174,49 @@ async def join_chat_room(room = Depends(get_chatroom),user = Depends(get_current
 # ----------------------------------------------------------------------------------------------
 
 class ConnectionManager() :
-    def __init__(self,code) -> None:
-        self.active_connections: List[str] = []
-        room_code:str = code
-    
-    async def connect(self,websocket:WebSocket) :
-        await websocket.accept()
-        self.active_connections.append(websocket)
 
-    def disconnect(self,websocket:WebSocket) :
-        self.active_connections.remove(websocket)
+    def __init__(self) -> None:
+        self.active_connections: dict[str,dict[str,WebSocket]] = {}
+    
+    async def connect(self,websocket:WebSocket,room_code,username) :
+        await websocket.accept()
+        if room_code in self.active_connections :
+            self.active_connections[room_code][username] = websocket
+        else :
+            self.active_connections[room_code] = {username:websocket}
+        print(self.active_connections)
+
+    def disconnect(self,room_code,username) :
+        self.active_connections[room_code].pop(username).close()
+        print(self.active_connections)
+    
+    async def broadcast(self,msg:messageModel) :
+        for k in self.active_connections[msg.code] :
+            await self.active_connections[msg.code][k].send_json(msg.json())
+
+manager = ConnectionManager()
 
 @app.websocket('/room/{room_code}/ws')    
-async def chat_room_websocket(websocket: WebSocket,user = Depends(get_current_user)) :
-    return user
+async def chat_room_websocket(websocket: WebSocket,room_code:str):
+    
+    try :
+        room =  get_chatroom(join_with_code(code=room_code))
+        tok = await oauth2_scheme(websocket=websocket)
+        user = await current_user(tok)
+    except HTTPException :
+        await websocket.close(code = 1008)
+
+    if websocket.application_state == WebSocketState.CONNECTING :
+        await manager.connect(room_code=room_code,username=user["username"],websocket=websocket)
+        await websocket.send_json(room["msgs"])
+        try:
+            while True:
+                data = await websocket.receive_text()
+                msg = messageModel(message=data,code=room_code,writer=user["username"],created_at=datetime.now())
+                room["msgs"].append(msg.json())
+                chatroom_coll.replace_one({'_id':room['_id']},room)
+                await manager.broadcast(msg)
+        except WebSocketDisconnect:
+            manager.disconnect(room_code,user["username"])
+
+    
