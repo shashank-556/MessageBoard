@@ -10,6 +10,7 @@ from jose import jwt,JWTError
 from starlette.websockets import WebSocketState
 from schemas import User_in,baseUserModel,Token,roomModel_in,roomModel_out,join_with_code,messageModel
 import pymongo
+from bson import json_util
 
 app = FastAPI()
 
@@ -34,11 +35,12 @@ ACCESS_TOKEN_EXPIRE_DAYS=30
 @app.on_event('startup')
 async def startup_envents():
     database_url = 'mongodb://localhost:27017/'
-    global mcl,mydb,user_coll,chatroom_coll
+    global mcl,mydb,user_coll,chatroom_coll,msg_coll
     mcl = pymongo.MongoClient(database_url)
     mydb = mcl['Messageboard']
     user_coll = mydb['Users']
     chatroom_coll = mydb['Rooms']
+    msg_coll = mydb['Messages']
 
 @app.on_event('shutdown')
 async def shutdown_event():
@@ -206,15 +208,17 @@ async def chat_room_websocket(websocket: WebSocket,room_code:str):
     except HTTPException :
         await websocket.close(code = 1008)
 
+    if (user["username"] not in room["members"]) or (user["username"]!= room["creater"]) :
+        await websocket.close(code=1008)
+
     if websocket.application_state == WebSocketState.CONNECTING :
         await manager.connect(room_code=room_code,username=user["username"],websocket=websocket)
-        await websocket.send_json(room["msgs"])
+        await websocket.send_json(json_util.dumps(list(msg_coll.find({"code":room_code}))))
         try:
             while True:
                 data = await websocket.receive_text()
                 msg = messageModel(message=data,code=room_code,writer=user["username"],created_at=datetime.now())
-                room["msgs"].append(msg.json())
-                chatroom_coll.replace_one({'_id':room['_id']},room)
+                msg_coll.insert_one(msg.dict())
                 await manager.broadcast(msg)
         except WebSocketDisconnect:
             manager.disconnect(room_code,user["username"])

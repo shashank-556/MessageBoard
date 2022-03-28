@@ -19,7 +19,6 @@ class join_with_code(BaseModel) :
 
 class roomModel_out(roomModel_in) :
     code:str = Field(title="Chatroom Code",description="Unique code to join the chatroom",max_length=8)
-    msgs: List[dict] = Field([],title="All the messages in the chat room")
     creater: str = Field(max_length=40)
     members: List[str] = Field([])
 
