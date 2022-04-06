@@ -186,12 +186,18 @@ class ConnectionManager() :
             self.active_connections[room_code][username] = websocket
         else :
             self.active_connections[room_code] = {username:websocket}
+        self.broadcast_users(room_code)
         print(self.active_connections)
 
     def disconnect(self,room_code,username) :
         self.active_connections[room_code].pop(username).close()
+        self.broadcast_users(room_code)
         print(self.active_connections)
     
+    async def broadcast_users(self,room_code) :
+        for k in self.active_connections[room_code] :
+            await self.active_connections[room_code][k].send_json(self.active_connections[room_code].keys())
+
     async def broadcast(self,msg:messageModel) :
         for k in self.active_connections[msg.code] :
             await self.active_connections[msg.code][k].send_json(msg.json())
@@ -205,15 +211,15 @@ async def chat_room_websocket(websocket: WebSocket,room_code:str):
         room =  get_chatroom(join_with_code(code=room_code))
         tok = await oauth2_scheme(websocket=websocket)
         user = await current_user(tok)
+        if (user["username"] not in room["members"]) or (user["username"]!= room["creater"]) :
+            await websocket.close(code=1008)
     except HTTPException :
         await websocket.close(code = 1008)
 
-    if (user["username"] not in room["members"]) or (user["username"]!= room["creater"]) :
-        await websocket.close(code=1008)
-
     if websocket.application_state == WebSocketState.CONNECTING :
+               
         await manager.connect(room_code=room_code,username=user["username"],websocket=websocket)
-        await websocket.send_json(json_util.dumps(list(msg_coll.find({"code":room_code}))))
+        await websocket.send_json({'type':'message','content':json_util.dumps(list(msg_coll.find({"code":room_code})))})
         try:
             while True:
                 data = await websocket.receive_text()
