@@ -30,7 +30,7 @@ SECRET_KEY = get_secret_key()
 ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_DAYS=30
 
-# --------------------------------------------------------------------------------------------------
+
 
 @app.on_event('startup')
 async def startup_envents():
@@ -46,7 +46,8 @@ async def startup_envents():
 async def shutdown_event():
     mcl.close()
 
-# -----------------------------------------------------------------------------------------------------------------------------
+
+
 async def verify_password(plain_pass,hash_pass):
     return pwd_context.verify(plain_pass,hash_pass)
 
@@ -121,7 +122,7 @@ def generate_chatroom_code():
         if not check_if_key_values_exist(chatroom_coll,{'code':code}) :
             return code
 
-# ------------------------------------------------------------------------------
+
 
 @app.post('/user/register',response_model=baseUserModel,response_model_exclude=['password'],status_code=201)
 async def register_users(user_in: User_in):
@@ -173,7 +174,7 @@ async def join_chat_room(room = Depends(get_chatroom),user = Depends(get_current
     user_coll.replace_one({'_id':user['_id']},user)
     return room
 
-# ----------------------------------------------------------------------------------------------
+
 
 class ConnectionManager() :
 
